@@ -193,3 +193,17 @@ TEST_CASE ("protocol: robust against short or empty input")
     CHECK (decode (Bytes { 0xBF, 0x73 }).type == Event::Type::none);
     CHECK (decode (Bytes { 0xF8 }).type == Event::Type::none);
 }
+
+TEST_CASE ("protocol: DAW port name matching (Linux, macOS, Windows names)")
+{
+    CHECK (isDawPortName ("LKMK3 DAW"));
+    CHECK (isDawPortName ("Launchkey MK3 49:Launchkey MK3 49 LKMK3 DAW In 28:1"));
+    CHECK (isDawPortName ("Launchkey MK3 49 LKMK3 DAW Out"));
+    CHECK (isDawPortName ("lkmk3 daw in"));
+    CHECK (isDawPortName ("MIDIIN2 (LKMK3 MIDI)"));
+    CHECK (isDawPortName ("MIDIOUT2 (LKMK3 MIDI)"));
+    CHECK (! isDawPortName ("LKMK3 MIDI"));
+    CHECK (! isDawPortName ("Launchkey MK3 49 LKMK3 MIDI In"));
+    CHECK (! isDawPortName ("Midi Through Port-0"));
+    CHECK (! isDawPortName ("Launchpad X LPX DAW In"));
+}

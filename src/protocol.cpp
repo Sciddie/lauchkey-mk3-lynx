@@ -1,6 +1,7 @@
 #include "lkmk3/protocol.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 
 namespace lkmk3
@@ -338,6 +339,17 @@ Bytes setFaderParameterValue (int fader, std::string_view text)
     return sysex (proto::setParamValueCmd, { (std::uint8_t) (proto::faderDisplayFirst + std::clamp (fader, 0, 8)) }, displayText (text));
 }
 } // namespace encode
+
+bool isDawPortName (std::string_view portName)
+{
+    std::string n (portName);
+    std::transform (n.begin(), n.end(), n.begin(), [] (unsigned char c) { return (char) std::toupper (c); });
+    if (n.find ("LKMK3 DAW") != std::string::npos)
+        return true;
+    if (n.find ("LKMK3") != std::string::npos && (n.find ("MIDIIN2") != std::string::npos || n.find ("MIDIOUT2") != std::string::npos))
+        return true;
+    return n.find ("LAUNCHKEY MK3") != std::string::npos && n.find ("DAW") != std::string::npos;
+}
 
 std::string modelName (int deviceType)
 {

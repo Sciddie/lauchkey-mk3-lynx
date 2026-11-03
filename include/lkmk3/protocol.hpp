@@ -195,6 +195,11 @@ Bytes setFaderParameterValue (int fader, std::string_view utf8Text);
 Bytes displayText (std::string_view utf8Text, std::size_t maxColumns = proto::displayColumns);
 } // namespace encode
 
+// Whether a MIDI port name is the Launchkey MK3's DAW interface. Linux (ALSA / PipeWire) and macOS call it
+// "... LKMK3 DAW ..." ("Launchkey MK3 49 LKMK3 DAW In", "LKMK3 DAW Out"); Windows names the second interface
+// "MIDIIN2 (LKMK3 MIDI)" / "MIDIOUT2 (LKMK3 MIDI)". The keys port ("LKMK3 MIDI") is never a match elsewhere.
+bool isDawPortName (std::string_view portName);
+
 // "Launchkey MK3 49" for device type 0x36, empty when unknown.
 std::string modelName (int deviceType);
 
