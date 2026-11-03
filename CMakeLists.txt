@@ -10,6 +10,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(LKMK3_BUILD_TESTS "Build the hardware-free unit tests" ON)
 option(LKMK3_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(LKMK3_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer (GCC / Clang)" OFF)
+
+if(LKMK3_SANITIZE AND NOT MSVC)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all)
+    add_link_options(-fsanitize=address,undefined)
+endif()
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
