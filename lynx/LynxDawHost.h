@@ -56,6 +56,18 @@ public:
     void selectChannel (int channel) override;
     std::string channelName (int channel) const override;
     std::uint32_t channelColour (int channel) const override;
+    void playNote (int channel, int key, float velocity, bool on) override;
+    int pluginParameterCount (int channel) const override;
+
+    int stepCount() const override;
+    bool hasStep (int channel, int step) const override;
+    void toggleStep (int channel, int step) override;
+    int playingStep() const override;
+
+    int patternCount() const override;
+    int currentPattern() const override;
+    void selectPattern (int pattern) override;
+    std::uint32_t patternColour (int pattern) const override;
 
     // The LYNX automation target a Parameter stands for (nullopt: none, e.g. a send the track does not have).
     std::optional<lynx::AutomationTarget> targetOf (const Parameter& p) const;

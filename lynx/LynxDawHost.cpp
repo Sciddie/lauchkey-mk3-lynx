@@ -1,5 +1,6 @@
 #include "LynxDawHost.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -215,5 +216,82 @@ std::uint32_t LynxDawHost::channelColour (int channel) const
 {
     const auto& song = engine.getSong();
     return channel >= 0 && channel < (int) song.channels.size() ? song.channels[(std::size_t) channel].colour & 0xFFFFFFu : 0u;
+}
+
+void LynxDawHost::playNote (int channel, int key, float velocity, bool on)
+{
+    if (channel >= 0 && channel < channelCount())
+        engine.sendLiveNote (channel, key, velocity, on, true); // as the typing keyboard: recorded while recording
+}
+
+int LynxDawHost::pluginParameterCount (int channel) const
+{
+    if (channel < 0 || channel >= channelCount())
+        return 0;
+    if (auto* plugin = dynamic_cast<lynx::PluginInstrument*> (engine.getChannelInstrument (channel).get()))
+        return plugin->getInstance().getParameters().size();
+    // LYNX's own instruments: parameters are reachable as channelParam targets, but their number is not exposed in one
+    // place (it depends on the engine: Sampler, FL natives, Dashboard...). Not mapped yet.
+    return 0;
+}
+
+namespace
+{
+const lynx::Pattern* currentPatternOf (const lynx::Song& song)
+{
+    if (song.patterns.empty() || song.currentPattern < 0 || song.currentPattern >= (int) song.patterns.size())
+        return nullptr;
+    return &song.patterns[(std::size_t) song.currentPattern];
+}
+} // namespace
+
+int LynxDawHost::stepCount() const
+{
+    const auto& song = engine.getSong();
+    const auto* p = currentPatternOf (song);
+    return p != nullptr ? (int) (p->effectiveLength (song.beatsPerBar) / lynx::ticksPerStep) : 0; // as ChannelRackComponent
+}
+
+bool LynxDawHost::hasStep (int channel, int step) const
+{
+    const auto* p = currentPatternOf (engine.getSong());
+    return p != nullptr && p->hasStep (channel, step);
+}
+
+void LynxDawHost::toggleStep (int channel, int step)
+{
+    if (currentPatternOf (engine.getSong()) == nullptr || channel < 0 || channel >= channelCount() || step < 0 || step >= stepCount())
+        return;
+    // undoable, like clicking a step in the Channel Rack (only steps inside the pattern: no length change needed)
+    engine.editSong ([channel, step] (lynx::Song& s) { s.patterns[(std::size_t) s.currentPattern].toggleStep (channel, step); });
+}
+
+int LynxDawHost::playingStep() const
+{
+    const auto& song = engine.getSong();
+    const auto& transport = engine.getTransport();
+    if (! transport.playing.load() || song.mode != lynx::PlayMode::pattern)
+        return -1;
+    const auto* p = currentPatternOf (song);
+    if (p == nullptr)
+        return -1;
+    const auto length = (double) p->effectiveLength (song.beatsPerBar);
+    if (length <= 0.0)
+        return -1;
+    const auto position = std::fmod (std::max (0.0, transport.positionTicks.load()), length);
+    return (int) (position / lynx::ticksPerStep);
+}
+
+int LynxDawHost::patternCount() const { return (int) engine.getSong().patterns.size(); }
+int LynxDawHost::currentPattern() const { return engine.getSong().currentPattern; }
+void LynxDawHost::selectPattern (int pattern)
+{
+    // as the pattern picker (MainComponent): outside the undo history
+    engine.editSong ([pattern] (lynx::Song& s) { if (pattern >= 0 && pattern < (int) s.patterns.size()) s.currentPattern = pattern; }, false);
+}
+std::uint32_t LynxDawHost::patternColour (int pattern) const
+{
+    const auto& song = engine.getSong();
+    return pattern >= 0 && pattern < (int) song.patterns.size() ? song.patterns[(std::size_t) pattern].colour & 0xFFFFFFu : 0u;
 }
 } // namespace lkmk3::lynxshare
