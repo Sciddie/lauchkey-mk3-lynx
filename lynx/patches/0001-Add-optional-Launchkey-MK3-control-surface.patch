@@ -1,0 +1,64 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3bc15d1..0cbe0f9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -498,6 +498,14 @@ if(LYNX_BUILD_APP)
+         PUBLIC
+             juce::juce_recommended_config_flags
+             juce::juce_recommended_lto_flags)
++
++    # Novation Launchkey MK3 DAW integration (https://github.com/Sciddie/lauchkey-mk3-lynx): point
++    # LYNX_LAUNCHKEY_MK3_DIR at a checkout of that repository to build it in (empty = off)
++    set(LYNX_LAUNCHKEY_MK3_DIR "" CACHE PATH "Checkout of lauchkey-mk3-lynx (empty: no Launchkey MK3 support)")
++    if(LYNX_LAUNCHKEY_MK3_DIR)
++        include(${LYNX_LAUNCHKEY_MK3_DIR}/cmake/LaunchkeyMk3Lynx.cmake)
++        lkmk3_add_to_lynx(LYNX)
++    endif()
+ endif()
+ 
+ if(LYNX_BUILD_APP AND UNIX AND NOT APPLE)
+diff --git a/src/Main.cpp b/src/Main.cpp
+index ea721ed..68f7a3c 100644
+--- a/src/Main.cpp
++++ b/src/Main.cpp
+@@ -116,6 +116,10 @@
+ #include <mutex>
+ #include <thread>
+ 
++#if LYNX_WITH_LAUNCHKEY_MK3
++ #include "LaunchkeyMk3Surface.h" // Novation Launchkey MK3 DAW integration (lauchkey-mk3-lynx)
++#endif
++
+ namespace
+ {
+ lynx::AudioEngine* crashEngine = nullptr;
+@@ -1280,6 +1284,9 @@ public:
+         startupTrace.mark ("audio engine + device");
+         crashEngine = engine.get();
+         lynx::crashreporter::watchAudioDevice (engine->getDeviceManager()); // (the session file names the device: crash reports)
++#if LYNX_WITH_LAUNCHKEY_MK3
++        launchkey = std::make_unique<lkmk3::lynxshare::LaunchkeyMk3Surface> (*engine); // DAW mode on the keyboard's DAW port
++#endif
+         addDriverFileDeviceType();
+ 
+         if (startupOptions.sound)
+@@ -1536,6 +1543,9 @@ public:
+             mainWindow->saveState();
+         mainWindow = nullptr; // the UI goes before the engine
+         lynx::updater::shutdown(); // (a check or download in flight stops)
++#if LYNX_WITH_LAUNCHKEY_MK3
++        launchkey = nullptr; // leaves DAW mode on the keyboard, before the engine goes
++#endif
+         crashEngine = nullptr;
+         engine = nullptr;
+         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+@@ -8600,6 +8610,9 @@ private:
+ 
+     lynx::theme::LookAndFeel lookAndFeel;
+     std::unique_ptr<lynx::AudioEngine> engine;
++#if LYNX_WITH_LAUNCHKEY_MK3
++    std::unique_ptr<lkmk3::lynxshare::LaunchkeyMk3Surface> launchkey;
++#endif
+     std::unique_ptr<juce::XmlElement> savedDeviceState; // --rtstress: the user's device before this run's --type/--buffer
+ 
+     // Hidden test mode --asiodll "<driver.dll>[|{CLSID}]" (REA round 97): an ASIO driver loaded straight from its file,

@@ -1,0 +1,14 @@
+# build trees
+/build*/
+/out/
+/cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+# editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+# local tool environments and references
+/.toolenv/
+/ref/
