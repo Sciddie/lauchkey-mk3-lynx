@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**', 'fix/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      full_lynx_build:
+        description: "Also build the whole LYNX SHARE app with the integration (slow)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  core:
+    name: Core + tests (${{ matrix.compiler }}${{ matrix.sanitize && ', ASan/UBSan' || '' }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { compiler: g++, sanitize: false }
+          - { compiler: clang++, sanitize: false }
+          - { compiler: clang++, sanitize: true }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+      - name: Configure
+        env:
+          CXX: ${{ matrix.compiler }}
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DLKMK3_WARNINGS_AS_ERRORS=ON -DLKMK3_SANITIZE=${{ matrix.sanitize && 'ON' || 'OFF' }}
+      - name: Build
+        run: cmake --build build
+      - name: Test (simulated hardware)
+        run: ctest --test-dir build --output-on-failure
+
+  lynx-adapter:
+    name: LYNX SHARE adapter compiles against LYNX SHARE
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch LYNX SHARE and compile the adapter + patched Main.cpp
+        env:
+          CXX: g++
+        run: scripts/check-lynx-adapter.sh "$RUNNER_TEMP/lynx-check"
+
+  lynx-full:
+    name: Full LYNX SHARE build with the integration
+    if: github.event_name == 'workflow_dispatch' && inputs.full_lynx_build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: lauchkey-mk3-lynx
+      - name: LYNX SHARE dependencies (from its README)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential cmake ninja-build pkg-config libasound2-dev libjack-jackd2-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev \
+            libfontconfig1-dev libgl-dev
+      - name: Fetch LYNX SHARE, apply the patch
+        run: |
+          ref=$(grep -oP 'lynx_ref="\$\{LYNX_REF:-\K[0-9a-f]+' lauchkey-mk3-lynx/scripts/check-lynx-adapter.sh)
+          git init -q LYNX-SHARE && cd LYNX-SHARE
+          git remote add origin https://github.com/Ka1-S/LYNX-SHARE.git
+          git fetch -q --depth 1 origin "$ref" && git checkout -q FETCH_HEAD
+          git apply ../lauchkey-mk3-lynx/lynx/patches/*.patch
+      - name: Build LYNX
+        run: |
+          cmake -S LYNX-SHARE -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DLYNX_LAUNCHKEY_MK3_DIR="$PWD/lauchkey-mk3-lynx"
+          cmake --build build --target LYNX
