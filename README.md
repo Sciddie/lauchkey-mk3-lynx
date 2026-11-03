@@ -31,6 +31,12 @@ selected Channel Rack channel).
 | **Pots 1–8** | the pot mode chosen on the keyboard: *Volume*, *Pan* (default), *Send-A*, *Send-B* of the bank |
 | **Fader buttons** | mute (lit in the track colour while audible); **Shift +** button: solo (pulsing yellow) |
 | **Arm/Select** | switches the fader buttons to **record arm** of the insert (red) and back |
+| **Pads (Session layout)** | 16 Channel Rack steps of the selected channel in the current pattern: set steps in the channel colour, beat grid dim white, playhead white while the pattern plays |
+| **Scene ▲ ▼** | previous / next page of 16 steps (or patterns); lit when there is a page in that direction |
+| **Scene Launch ►** | switch the pads between **steps** (amber) and **patterns** (cyan): a pad selects pattern 1–16 (current one pulses) |
+| **Pads (Drum layout)** | pad *n* plays Channel Rack channel *n* (of the selected channel's group of 16) at C5, lit in the channel colours |
+| **Device Select (hold) + pad** | select Channel Rack channel *n* (selected = white) |
+| **Pots / faders in *Device* mode** | parameters 1–8 (pots) / 9–16 (faders 1–8) of the selected channel's plugin, with names and values on the LCD; fader 9 stays the master |
 | **Stop/Solo/Mute LED** | transport state: dim = stopped, green = playing, red = record on, pulsing red = recording |
 | **LCD** | top row `REC PLAY PAT CLK`; bottom row selected channel + mixer bank; name and value (dB, pan) of every pot / fader while you touch it |
 
@@ -168,6 +174,10 @@ Without `-DLYNX_LAUNCHKEY_MK3_DIR` the patched LYNX SHARE builds exactly as befo
    - faders 1–8 move inserts 1–8, fader 9 the master; pots follow the pot mode chosen on the keyboard (its Shift menu) and the LCD names them;
    - Shift + Track ◀ ▶ shows `9-16` etc. on the LCD's bottom row; Track ◀ ▶ changes the Channel Rack selection;
    - fader buttons mute (Shift: solo); Arm/Select then fader buttons arm inserts for recording;
+   - pads toggle Channel Rack steps and light in the channel colour; in pattern mode with Play the playhead runs over
+     them; Scene Launch ► switches to pattern selection; Scene ▲ ▼ page;
+   - Shift menu → Drum layout: pads play channels 1–16; holding Device Select shows the channels on the pads;
+   - with a plugin channel selected, pot mode *Device* moves its first 8 parameters (names on the LCD);
    - the keys still play the selected channel and Settings › MIDI lists the `LKMK3 DAW` input as off;
    - quitting LYNX returns the keyboard to Standalone mode (pads back to its own layout, LCD cleared).
 4. Debug builds print `Launchkey MK3 …: connected to …` via JUCE's `DBG`.
@@ -183,6 +193,8 @@ Without `-DLYNX_LAUNCHKEY_MK3_DIR` the patched LYNX SHARE builds exactly as befo
 * The full LYNX SHARE link with the integration: on the development box only the adapter and the patched `Main.cpp`
   were compiled against LYNX SHARE (`scripts/check-lynx-adapter.sh`); the box had no system packages for a full JUCE
   app build. CI's manual `lynx-full` job does the full build.
+* Pad colour handling across layout switches (the integration resends the pad colours of a layout when the keyboard
+  reports that layout) and whether the Device Select layout's pads keep their colours while the button is held.
 * Launchkey MK3 25 / 37 (no faders) and 61 — the protocol is shared, so they should work minus the faders.
 
 ## Limitations
@@ -192,14 +204,19 @@ Without `-DLYNX_LAUNCHKEY_MK3_DIR` the patched LYNX SHARE builds exactly as befo
 * The DAW port is disabled in LYNX's MIDI input settings only for the session; if you save the MIDI settings page while
   connected, it stays disabled (which is what you want for this keyboard).
 * The pots are absolute (not endless) on the MK3, hence soft takeover; the device's own *Pot Pickup* feature is left off.
-* Capture MIDI, Quantise, Device Select / Lock and Scene ▲▼ / ► are not mapped yet (see roadmap).
+* Capture MIDI, Quantise and Device Lock are not mapped yet (see roadmap).
+* *Device* mode reaches hosted plugins (VST3 / CLAP / LV2 / VST2) only: LYNX's own instruments have `channelParam`
+  targets too, but their parameter count isn't exposed in one place yet.
+* Step pads toggle steps inside the pattern's current length only (they never lengthen the pattern) and use LYNX's
+  default step note; the playhead is shown in pattern mode only.
+* Drum pads always play key 60 (C5) on their channel — right for samplers / drum channels, a fixed pitch for synths.
 
 ## Roadmap
 
-* Pads: Channel Rack steps of the selected channel with colour feedback and playhead; pattern selection.
-* Device mode pots / faders: parameters of the selected channel's instrument or plugin.
 * Capture MIDI → LYNX's *Dump score log to selected pattern*; Quantise → quick quantize of the selected pattern.
-* Device Select pads → channel selection by pad.
+* Device mode for LYNX's native instruments and for the selected mixer slot's effect (`effectParam` targets).
+* Step pads: follow the playhead across pages, velocity / per-step note editing, Shift + pad for a 2nd row of channels.
+* Device Lock: keep device mode on one channel while selecting others.
 * Settings page in LYNX SHARE (enable / disable, soft takeover on / off) once LYNX has a place for controller options.
 
 ## Versioning and contributing
