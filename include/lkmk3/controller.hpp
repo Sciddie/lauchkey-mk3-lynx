@@ -32,6 +32,15 @@ public:
     static constexpr int potCount = 8;
     static constexpr int faderCount = 9; // 8 + master (LK 49 / 61)
     static constexpr int bankSize = 8;
+    static constexpr int padCount = 16;
+    static constexpr int drumKey = 60; // the key the drum-layout pads play on their channel (C5, a sample's root key)
+
+    // What the 16 pads show in the Session layout (Scene Launch ► switches).
+    enum class PadLayer : std::uint8_t
+    {
+        steps,    // Channel Rack steps of the selected channel in the current pattern (16 per page)
+        patterns, // the project's patterns (16 per page); a press selects one
+    };
 
     explicit Controller (DawHost& host);
     Controller (DawHost& host, Options options);
@@ -55,6 +64,9 @@ public:
     bool faderButtonsArm() const noexcept { return armMode; }
     bool shiftHeld() const noexcept { return shift; }
     int deviceType() const noexcept { return model; } // from the device inquiry reply, 0 until known
+    PadLayer padLayer() const noexcept { return layer; }
+    int stepPage() const noexcept { return stepPageIndex; }
+    int patternPage() const noexcept { return patternPageIndex; }
     // What pot / fader `index` drives right now (Kind::none when nothing).
     Parameter potTarget (int index) const;
     Parameter faderTarget (int index) const;
@@ -82,11 +94,19 @@ private:
     void onContinuous (Takeover& slot, const Parameter& target, int value);
     void moveBank (int delta);
     void selectChannelBy (int delta);
+    void onPad (const Event& e);
+    void movePage (int delta);
+    int pageCount() const;
+    int channelPage() const;
+    void forgetPadLeds();
 
     std::map<Led, LedState> desiredLeds() const;
     std::map<int, std::string> desiredTexts() const;
     std::uint8_t trackColour (int track) const;
     std::uint8_t transportColour (Lighting& lighting) const;
+    std::uint8_t channelColourIndex (int channel, std::uint8_t fallback) const;
+    std::uint8_t patternColourIndex (int pattern) const;
+    void addPadLeds (std::map<Led, LedState>& leds) const;
 
     DawHost& host;
     Options options;
@@ -98,6 +118,8 @@ private:
     PadMode pads = PadMode::session;
     PotMode pots = PotMode::pan;
     FaderMode faders = FaderMode::volume;
+    PadLayer layer = PadLayer::steps;
+    int stepPageIndex = 0, patternPageIndex = 0;
     std::array<Takeover, potCount> potSlots {};
     std::array<Takeover, faderCount> faderSlots {};
     std::map<Led, LedState> sentLeds;

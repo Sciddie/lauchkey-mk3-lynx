@@ -4,6 +4,7 @@ add_executable(lkmk3_tests
     test_protocol.cpp
     test_palette.cpp
     test_controller_mixer.cpp
+    test_controller_pads.cpp
 )
 target_link_libraries(lkmk3_tests PRIVATE lkmk3_core)
 target_compile_definitions(lkmk3_tests PRIVATE LKMK3_PROJECT_VERSION="${PROJECT_VERSION}")

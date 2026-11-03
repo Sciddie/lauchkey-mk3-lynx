@@ -73,5 +73,21 @@ public:
     virtual void selectChannel (int channel) = 0;
     virtual std::string channelName (int channel) const = 0;
     virtual std::uint32_t channelColour (int channel) const = 0; // 0xRRGGBB, 0 = none
+    // Plays a live note on a channel (drum pads), recorded like the keys when recording.
+    virtual void playNote (int channel, int key, float velocity, bool on) = 0;
+    // How many parameters the channel's instrument / plugin exposes (0 = none).
+    virtual int pluginParameterCount (int channel) const = 0;
+
+    // --- step sequencer (the current pattern; steps are 16th notes) ---
+    virtual int stepCount() const = 0; // steps in the current pattern (0 without a pattern)
+    virtual bool hasStep (int channel, int step) const = 0;
+    virtual void toggleStep (int channel, int step) = 0;
+    virtual int playingStep() const = 0; // the step under the playhead while the current pattern plays, else -1
+
+    // --- patterns ---
+    virtual int patternCount() const = 0;
+    virtual int currentPattern() const = 0;
+    virtual void selectPattern (int pattern) = 0;
+    virtual std::uint32_t patternColour (int pattern) const = 0; // 0xRRGGBB, 0 = none
 };
 } // namespace lkmk3

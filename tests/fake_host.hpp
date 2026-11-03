@@ -83,11 +83,27 @@ public:
     }
     float parameterValue (const Parameter& p) const override
     {
+        if (p.kind == Parameter::Kind::pluginParam)
+        {
+            if (p.sub < 0 || p.sub >= pluginParameterCount (p.index))
+                return -1.0f;
+            const auto it = pluginParams.find ({ p.index, p.sub });
+            return it == pluginParams.end() ? 0.5f : it->second;
+        }
         const auto* v = const_cast<FakeHost*> (this)->slot (p);
         return v != nullptr ? *v : -1.0f;
     }
     void setParameterValue (const Parameter& p, float value) override
     {
+        if (p.kind == Parameter::Kind::pluginParam)
+        {
+            if (p.sub >= 0 && p.sub < pluginParameterCount (p.index))
+            {
+                pluginParams[{ p.index, p.sub }] = value;
+                ++parameterWrites;
+            }
+            return;
+        }
         if (auto* v = slot (p))
         {
             *v = value;
@@ -110,6 +126,34 @@ public:
     void selectChannel (int c) override { selected = c; }
     std::string channelName (int c) const override { return c >= 0 && c < channelCount() ? channels[(std::size_t) c].name : std::string(); }
     std::uint32_t channelColour (int c) const override { return c >= 0 && c < channelCount() ? channels[(std::size_t) c].colour : 0; }
+
+    // --- stage 2 ---
+    struct Note { int channel, key; float velocity; bool on; };
+    std::vector<Note> notes;
+    std::vector<std::vector<bool>> steps = std::vector<std::vector<bool>> (4, std::vector<bool> (16));
+    int playhead = -1;
+    std::vector<std::uint32_t> patternColours { 0xFF0000, 0x00FF00, 0 };
+    int pattern = 0;
+    std::vector<int> paramCounts { 0, 12, 0, 0 };
+    std::map<std::pair<int, int>, float> pluginParams;
+
+    void playNote (int c, int k, float v, bool on) override { notes.push_back ({ c, k, v, on }); }
+    int pluginParameterCount (int c) const override { return c >= 0 && c < (int) paramCounts.size() ? paramCounts[(std::size_t) c] : 0; }
+    int stepCount() const override { return steps.empty() ? 0 : (int) steps[0].size(); }
+    bool hasStep (int c, int s) const override
+    {
+        return c >= 0 && c < (int) steps.size() && s >= 0 && s < stepCount() && steps[(std::size_t) c][(std::size_t) s];
+    }
+    void toggleStep (int c, int s) override
+    {
+        if (c >= 0 && c < (int) steps.size() && s >= 0 && s < stepCount())
+            steps[(std::size_t) c][(std::size_t) s] = ! steps[(std::size_t) c][(std::size_t) s];
+    }
+    int playingStep() const override { return playhead; }
+    int patternCount() const override { return (int) patternColours.size(); }
+    int currentPattern() const override { return pattern; }
+    void selectPattern (int p) override { pattern = p; }
+    std::uint32_t patternColour (int p) const override { return p >= 0 && p < patternCount() ? patternColours[(std::size_t) p] : 0; }
 
 private:
     bool valid (int t) const { return t >= 0 && t < (int) tracks.size(); }

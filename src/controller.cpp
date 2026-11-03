@@ -38,6 +38,8 @@ Messages Controller::connect()
     pads = PadMode::session; // what the surface selects on entering DAW mode (manual: "Pads: Session")
     pots = PotMode::pan;     // ("Pots: Pan")
     faders = FaderMode::volume; // ("Faders: Volume")
+    layer = PadLayer::steps;
+    stepPageIndex = patternPageIndex = 0;
     sentLeds.clear();
     sentTexts.clear();
     for (auto& s : potSlots) s = {};
@@ -68,10 +70,24 @@ Messages Controller::disconnect()
     return out;
 }
 
+namespace
+{
+// Device mode: parameter `param` of the selected channel's instrument / plugin.
+Parameter deviceParameter (const DawHost& host, int param)
+{
+    const auto channel = host.selectedChannel();
+    if (channel < 0 || param >= host.pluginParameterCount (channel))
+        return {};
+    return { Parameter::Kind::pluginParam, channel, param };
+}
+} // namespace
+
 Parameter Controller::potTarget (int i) const
 {
     if (i < 0 || i >= potCount)
         return {};
+    if (pots == PotMode::device)
+        return deviceParameter (host, i);
     const auto track = bankStart + i;
     if (track >= host.mixerTrackCount())
         return {};
@@ -91,6 +107,8 @@ Parameter Controller::faderTarget (int i) const
         return host.mixerTrackCount() > 0 ? Parameter { Parameter::Kind::mixerVolume, 0, 0 } : Parameter {};
     if (i < 0 || i >= faderCount)
         return {};
+    if (faders == FaderMode::device)
+        return deviceParameter (host, potCount + i); // the 8 parameters after the pots' 8
     const auto track = bankStart + i;
     if (track >= host.mixerTrackCount())
         return {};
@@ -199,6 +217,11 @@ void Controller::onButton (const Event& e, Messages&)
                 selectChannelBy (1);
             break;
         case Button::armSelect: armMode = ! armMode; break;
+        case Button::sceneLaunch:
+            layer = layer == PadLayer::steps ? PadLayer::patterns : PadLayer::steps;
+            break;
+        case Button::sceneUp: movePage (-1); break;
+        case Button::sceneDown: movePage (1); break;
         case Button::faderButton:
         {
             const auto track = bankStart + e.index;
@@ -212,7 +235,7 @@ void Controller::onButton (const Event& e, Messages&)
                 host.setTrackMuted (track, ! host.isTrackMuted (track));
             break;
         }
-        default: break; // capture MIDI, quantise, scene buttons, device select / lock: not mapped (yet)
+        default: break; // capture MIDI, quantise, device lock: not mapped (yet); device select: see the pad mode
     }
 }
 
@@ -228,13 +251,157 @@ Messages Controller::handle (const Bytes& message)
         case Event::Type::button: onButton (e, out); break;
         case Event::Type::pot: onContinuous (potSlots[(std::size_t) e.index], potTarget (e.index), e.value); break;
         case Event::Type::fader: onContinuous (faderSlots[(std::size_t) e.index], faderTarget (e.index), e.value); break;
-        case Event::Type::padModeReport: pads = e.padMode; break;
+        case Event::Type::pad:
+        case Event::Type::drumPad:
+        case Event::Type::deviceSelectPad: onPad (e); break;
+        case Event::Type::padModeReport:
+            if (pads != e.padMode)
+                forgetPadLeds(); // the new layout gets all its colours
+            pads = e.padMode;
+            break;
         case Event::Type::potModeReport: pots = e.potMode; break;
         case Event::Type::faderModeReport: faders = e.faderMode; break;
         case Event::Type::deviceInquiryReply: model = e.value; break;
         default: break;
     }
     return out;
+}
+
+int Controller::pageCount() const
+{
+    const auto items = layer == PadLayer::steps ? host.stepCount() : host.patternCount();
+    return std::max (1, (items + padCount - 1) / padCount);
+}
+
+int Controller::channelPage() const { return std::max (0, host.selectedChannel()) / padCount; }
+
+void Controller::movePage (int delta)
+{
+    auto& page = layer == PadLayer::steps ? stepPageIndex : patternPageIndex;
+    page = std::clamp (page + delta, 0, pageCount() - 1);
+}
+
+void Controller::forgetPadLeds()
+{
+    for (auto it = sentLeds.begin(); it != sentLeds.end();)
+        it = it->first.kind == Led::Kind::cc ? std::next (it) : sentLeds.erase (it);
+}
+
+void Controller::onPad (const Event& e)
+{
+    if (e.type == Event::Type::drumPad)
+    {
+        // Drum layout: pad i plays Channel Rack channel i of the selected channel's page of 16, like FL's pads
+        const auto channel = channelPage() * padCount + e.index;
+        if (channel < host.channelCount())
+            host.playNote (channel, drumKey, e.pressed ? (float) e.value / 127.0f : 0.0f, e.pressed);
+        return;
+    }
+    if (! e.pressed)
+        return;
+    if (e.type == Event::Type::deviceSelectPad)
+    {
+        // Device Select held: pads choose a channel of the selected channel's page of 16
+        const auto channel = channelPage() * padCount + e.index;
+        if (channel < host.channelCount())
+            host.selectChannel (channel);
+        return;
+    }
+    if (layer == PadLayer::steps)
+    {
+        stepPageIndex = std::clamp (stepPageIndex, 0, pageCount() - 1);
+        const auto channel = host.selectedChannel();
+        const auto step = stepPageIndex * padCount + e.index;
+        if (channel >= 0 && step < host.stepCount())
+            host.toggleStep (channel, step);
+    }
+    else
+    {
+        const auto pattern = patternPageIndex * padCount + e.index;
+        if (pattern < host.patternCount())
+            host.selectPattern (pattern);
+    }
+}
+
+std::uint8_t Controller::channelColourIndex (int channel, std::uint8_t fallback) const
+{
+    const auto rgb = host.channelColour (channel);
+    const auto index = rgb == 0 ? fallback : palette::nearest (rgb);
+    return index == palette::off ? fallback : index;
+}
+
+std::uint8_t Controller::patternColourIndex (int pattern) const
+{
+    // LYNX / FL patterns without a colour of their own: a fixed cycle of distinct hues by index
+    static constexpr std::uint8_t cycle[] = { palette::red, palette::amber, palette::yellow, palette::green,
+                                              palette::cyan, palette::blue, palette::purple, 57 };
+    const auto rgb = host.patternColour (pattern);
+    const auto index = rgb == 0 ? cycle[pattern % 8] : palette::nearest (rgb);
+    return index == palette::off ? palette::dimWhite : index;
+}
+
+void Controller::addPadLeds (std::map<Led, LedState>& leds) const
+{
+    if (pads == PadMode::session)
+    {
+        if (layer == PadLayer::steps)
+        {
+            const auto channel = host.selectedChannel();
+            const auto count = host.stepCount();
+            const auto page = std::clamp (stepPageIndex, 0, pageCount() - 1);
+            const auto onColour = channel >= 0 ? channelColourIndex (channel, palette::amber) : palette::amber;
+            const auto playing = host.playingStep();
+            for (int i = 0; i < padCount; ++i)
+            {
+                const auto step = page * padCount + i;
+                LedState s;
+                if (channel >= 0 && step < count)
+                {
+                    if (step == playing)
+                        s.colour = palette::white;
+                    else if (host.hasStep (channel, step))
+                        s.colour = onColour;
+                    else
+                        s.colour = step % 4 == 0 ? palette::dimWhite : palette::off; // beat grid
+                }
+                leds[{ Led::Kind::sessionPad, sessionPadNote (i) }] = s;
+            }
+        }
+        else
+        {
+            const auto count = host.patternCount();
+            const auto current = host.currentPattern();
+            for (int i = 0; i < padCount; ++i)
+            {
+                const auto pattern = patternPageIndex * padCount + i;
+                LedState s;
+                if (pattern < count)
+                {
+                    s.colour = patternColourIndex (pattern);
+                    if (pattern == current)
+                        s.lighting = Lighting::pulsing;
+                    else
+                        s.colour = palette::dimmed (s.colour);
+                }
+                leds[{ Led::Kind::sessionPad, sessionPadNote (i) }] = s;
+            }
+        }
+    }
+    else if (pads == PadMode::deviceSelect || pads == PadMode::drum)
+    {
+        const auto first = channelPage() * padCount;
+        const auto selected = host.selectedChannel();
+        for (int i = 0; i < padCount; ++i)
+        {
+            const auto channel = first + i;
+            LedState s;
+            if (channel < host.channelCount())
+                s.colour = channel == selected ? palette::white : channelColourIndex (channel, palette::dimGreen);
+            const auto kind = pads == PadMode::drum ? Led::Kind::drumPad : Led::Kind::deviceSelectPad;
+            const auto note = pads == PadMode::drum ? proto::drumNotes[(std::size_t) i] : deviceSelectPadNote (i);
+            leds[{ kind, note }] = s;
+        }
+    }
 }
 
 std::uint8_t Controller::trackColour (int track) const
@@ -287,6 +454,16 @@ std::map<Led, Controller::LedState> Controller::desiredLeds() const
     }
     // Arm/Select has a white LED: bright in Arm mode, dim in Select mode.
     leds[ccLed (proto::armSelectCc)] = { armMode ? palette::white : palette::dimWhite, Lighting::stationary };
+
+    // Scene Launch ► shows the pad layer (amber = steps, cyan = patterns); Scene ▲ ▼ light when there is a page
+    const auto session = pads == PadMode::session;
+    leds[ccLed (proto::sceneLaunchCc)] = { session ? (layer == PadLayer::steps ? palette::amber : palette::cyan) : palette::off,
+                                            Lighting::stationary };
+    const auto page = layer == PadLayer::steps ? stepPageIndex : patternPageIndex;
+    leds[ccLed (proto::sceneUpCc)] = { session && page > 0 ? palette::white : palette::off, Lighting::stationary };
+    leds[ccLed (proto::sceneDownCc)] = { session && page + 1 < pageCount() ? palette::white : palette::off, Lighting::stationary };
+
+    addPadLeds (leds);
     return leds;
 }
 
